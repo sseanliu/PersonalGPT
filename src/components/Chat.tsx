@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Settings, Mic } from 'lucide-react';
 import { Message } from '../types';
 import SettingsModal from './SettingsModal';
+import OpenAI from 'openai';
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -34,21 +35,47 @@ export default function Chat() {
     setIsLoading(true);
 
     try {
-      // Here you would make the actual API call to ChatGPT
-      // For now, we'll simulate a response
-      setTimeout(() => {
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: 'This is a simulated response. Replace this with actual API integration.',
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, assistantMessage]);
-        setIsLoading(false);
-      }, 1000);
+      const settings = JSON.parse(localStorage.getItem('chatSettings') || '{}');
+      if (!settings.apiKey) {
+        throw new Error('Please set your OpenAI API key in settings');
+      }
+
+      const openai = new OpenAI({
+        apiKey: settings.apiKey,
+        dangerouslyAllowBrowser: true
+      });
+
+      const response = await openai.chat.completions.create({
+        model: settings.model || 'gpt-3.5-turbo',
+        messages: [
+          ...messages.map(msg => ({
+            role: msg.role === 'error' ? 'assistant' : msg.role,
+            content: msg.content
+          })),
+          { role: 'user', content: input }
+        ],
+      });
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: response.choices[0]?.message?.content || 'No response from API',
+        timestamp: Date.now(),
+      };
+      
+      setMessages(prev => [...prev, assistantMessage]);
+      setIsLoading(false);
     } catch (error) {
       console.error('Error:', error);
       setIsLoading(false);
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'error',
+        content: error instanceof Error ? error.message : 'An unexpected error occurred',
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
     }
   };
 
@@ -78,6 +105,8 @@ export default function Chat() {
               className={`max-w-[80%] p-4 rounded-lg ${
                 message.role === 'user'
                   ? 'bg-blue-500 text-white'
+                  : message.role === 'error'
+                  ? 'bg-red-100 border-red-300 border text-red-700'
                   : 'bg-white border'
               }`}
             >
